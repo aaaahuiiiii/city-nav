@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TravelBird · 语义导航 · 地图原型</title>
+  <!-- ✅ 高德安全密钥（若你的Key要求安全码，必须配置）。在 .env 里也请同步配置 -->
+  <script>
+    window._AMapSecurityConfig = {
+      securityJsCode: "SECURITY_JS_CODE_替换成你的安全密钥"
+    };
+  </script>
+  <!-- ✅ 高德 JSAPI 加载器（2.x）-->
+  <script src="https://webapi.amap.com/loader.js"></script>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2b;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --brand: #4f46e5;
+      --brand-2: #22d3ee;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --rounded: 18px;
+    }
+    * { box-sizing: border-box; }
+    html,body { height: 100%; }
+    body { margin:0; background: radial-gradient(1200px 600px at 15% -10%, rgba(79,70,229,.25), transparent),
+                           radial-gradient(1200px 600px at 85% -10%, rgba(34,211,238,.25), transparent), var(--bg);
+           color: var(--text); font: 14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
+    .app { display: grid; grid-template-columns: 380px 1fr; gap: 16px; height: 100%; padding: 16px; }
+    .panel { background: linear-gradient(180deg, rgba(18,26,43,.9), rgba(18,26,43,.8)); border: 1px solid rgba(148,163,184,.15); border-radius: var(--rounded); box-shadow: var(--shadow); display:flex; flex-direction:column; overflow: hidden; }
+    .panel-header { padding: 18px 18px 8px; border-bottom: 1px solid rgba(148,163,184,.12); }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.3px; }
+    .brand .dot { width: 10px; height:10px; background: linear-gradient(45deg, var(--brand), var(--brand-2)); border-radius: 50%; box-shadow: 0 0 0 4px rgba(79,70,229,.25); }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .panel-body { padding: 16px; overflow: auto; }
+    .field { margin-bottom: 12px; }
+    .label { display:block; font-size:12px; color: var(--muted); margin-bottom:6px; }
+    .input, .select { width:100%; padding:12px 14px; border-radius: 12px; background: #0d1424; border:1px solid rgba(148,163,184,.18); color: var(--text); outline:none; }
+    .row { display:flex; gap:10px; }
+    .btn { border:0; padding: 12px 14px; border-radius: 12px; font-weight:600; cursor:pointer; transition: .2s transform ease, .2s opacity ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color:white; }
+    .btn-ghost { background: transparent; color: var(--muted); border:1px solid rgba(148,163,184,.2); }
+    .chip-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip { padding:6px 10px; border-radius: 999px; font-size:12px; background: #0d1424; border:1px solid rgba(148,163,184,.2); color: #cbd5e1; cursor:pointer; }
+    .help { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .divider { display:flex; align-items:center; gap:10px; margin: 14px 0; }
+    .divider .line { height:1px; background: rgba(148,163,184,.18); flex:1; }
+    .divider .text { font-size: 12px; color: var(--muted); }
+    .map-wrap { position: relative; border-radius: var(--rounded); overflow: hidden; border: 1px solid rgba(148,163,184,.15); box-shadow: var(--shadow); }
+    #map { width:100%; height:100%; min-height: calc(100vh - 32px); }
+    .floating { position: absolute; right: 16px; top: 16px; display:flex; flex-direction:column; gap:8px; }
+    .fab { padding:10px 12px; border-radius: 12px; border:1px solid rgba(148,163,184,.2); background: rgba(11,18,32,.65); color:#e2e8f0; backdrop-filter: blur(8px); cursor:pointer; }
+    .route-panel { margin-top: 10px; background: #0d1424; border:1px solid rgba(148,163,184,.18); border-radius: 12px; max-height: 220px; overflow:auto; padding: 10px; }
+    .pill { display:inline-block; padding: 3px 8px; border-radius: 999px; background: rgba(16,185,129,.15); color:#a7f3d0; font-size: 11px; margin-left: 6px; }
+    .legend { display:flex; gap:8px; align-items:center; font-size: 12px; color:#cbd5e1; }
+    .dotA,.dotB,.dotC{ width:8px; height:8px; border-radius:50%; }
+    .dotA{ background:#34d399; } /* 起点 */
+    .dotB{ background:#60a5fa; } /* 途径 */
+    .dotC{ background:#f43f5e; } /* 终点 */
+    .footer { padding: 10px 16px; border-top: 1px solid rgba(148,163,184,.12); color: var(--muted); font-size: 12px; }
+    .status { margin-left: 6px; }
+    @media (max-width: 960px){ .app{ grid-template-columns: 1fr; } #map{ min-height: 60vh; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- 左侧控制面板 -->
+    <aside class="panel" role="complementary" aria-label="控制面板">
+      <div class="panel-header">
+        <div class="brand">
+          <span class="dot" aria-hidden></span>
+          <div>TravelBird · 城市语义导航 <span class="pill">地图API接入</span></div>
+        </div>
+        <div class="subtitle">按照开题PPT：先打通地图层（POI/地理编码/驾车路径），后续再挂接语义理解与多模态。</div>
+      </div>
+      <div class="panel-body">
+        <!-- 语义查询（可选：如果你已启动后端 /process_query） -->
+        <div class="field">
+          <label class="label">自然语言需求（可选）</label>
+          <input id="query" class="input" placeholder="例如：从云南大学东陆校区到翠湖，顺路经过适合拍照的咖啡馆" />
+          <div class="chip-list" id="examples"></div>
+          <div class="row" style="margin-top:8px;">
+            <button id="btnSemantic" class="btn btn-primary" title="调用后端语义接口，将结果落到地图">语义解析 → 地图</button>
+            <button id="btnClear" class="btn btn-ghost" title="清空地图元素">清空</button>
+          </div>
+          <div class="help">未启动后端时，可直接用下面的“手动设置起终点/途径点”。</div>
+        </div>
+
+        <div class="divider"><span class="line"></span><span class="text">或</span><span class="line"></span></div>
+
+        <!-- 手动地理编码与路径规划 -->
+        <div class="field">
+          <label class="label">起点</label>
+          <input id="start" class="input" placeholder="例如：云南大学东陆校区正门" />
+        </div>
+        <div class="field">
+          <label class="label">途径点（可留空，多点用中文逗号隔开）</label>
+          <input id="via" class="input" placeholder="例如：翠湖公园东门, 胡桃里昆明店" />
+        </div>
+        <div class="field">
+          <label class="label">终点</label>
+          <input id="end" class="input" placeholder="例如：讲武堂旧址" />
+        </div>
+        <div class="row">
+          <button id="btnPlan" class="btn btn-primary">规划路线</button>
+          <button id="btnFit" class="btn btn-ghost">视野适配</button>
+        </div>
+
+        <div class="divider"><span class="line"></span><span class="text">地图状态</span><span class="line"></span></div>
+        <div class="legend">
+          <span class="dotA"></span> 起点
+          <span class="dotB"></span> 途径
+          <span class="dotC"></span> 终点
+        </div>
+        <div id="msg" class="help" style="margin-top:6px;">就绪 ✅</div>
+
+        <div class="route-panel" id="routePanel" aria-live="polite"></div>
+      </div>
+      <div class="footer">基于 <strong>TravelBird</strong> 仓库模板重写前端页，仅实现地图 API 接入与基础演示。</div>
+    </aside>
+
+    <!-- 右侧地图 -->
+    <main class="map-wrap" role="main" aria-label="地图">
+      <div id="map"></div>
+      <div class="floating">
+        <button id="btnStyle" class="fab" title="切换底图样式">切换样式</button>
+        <button id="btnLocate" class="fab" title="定位到昆明">定位昆明</button>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ----------- 配置区（与你的 .env / README 对应）-----------
+    const AMAP_KEY = "AMAP_MAPS_API_KEY_替换成你的Key"; // 📌 将这里替换为你的 Key（与 README 一致）
+
+    // ----------- 状态与通用工具 -----------
+    const $ = (sel) => document.querySelector(sel);
+    const msg = (text, level = "info") => {
+      const el = $("#msg");
+      const icon = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : '✅';
+      el.textContent = `${text} ${icon}`;
+    };
+
+    const examples = [
+      "从北京大学到故宫，想路上经过好拍照的咖啡馆",
+      "从上海外滩到迪士尼，尽量不走高架",
+      "昆明东陆校区周边 3 个安静自习咖啡馆，并串成步行路线",
+      "从成都人民公园骑行到太古里，避开拥堵"
+    ];
+
+    // ----------- 地图初始化 -----------
+    let AMapJS = null, map = null, geocoder = null, driving = null;
+    let markers = [], styleIdx = 0;
+
+    function addMarker(lnglat, type, title) {
+      const color = type === 'start' ? '#34d399' : type === 'end' ? '#f43f5e' : '#60a5fa';
+      const marker = new AMapJS.Marker({
+        position: lnglat,
+        title,
+        offset: new AMapJS.Pixel(-10, -10),
+        content: `<div style="width:18px;height:18px;border-radius:50%;background:${color};box-shadow:0 0 0 3px rgba(255,255,255,.4);"></div>`
+      });
+      marker.setMap(map);
+      markers.push(marker);
+      return marker;
+    }
+
+    function clearMap() {
+      markers.forEach(m => m.setMap(null));
+      markers = [];
+      if (driving) driving.clear();
+      $("#routePanel").innerHTML = "";
+    }
+
+    async function loadAMap() {
+      msg("正在加载地图…");
+      return new Promise((resolve, reject) => {
+        AMapLoader.load({ key: AMAP_KEY, version: "2.0", plugins: ["AMap.Geocoder","AMap.Driving","AMap.AutoComplete","AMap.PlaceSearch"] })
+          .then((AMap) => {
+            AMapJS = AMap;
+            map = new AMap.Map("map", { zoom: 12, center: [102.707, 25.044], mapStyle: "amap://styles/darkblue", viewMode: "3D", resizeEnable: true });
+            geocoder = new AMap.Geocoder();
+            driving = new AMap.Driving({ map, policy: AMap.DrivingPolicy.LEAST_TIME, ferry: 0, province: "云南" });
+            msg("地图加载完成");
+            resolve();
+          })
+          .catch((e) => { msg("地图加载失败，请检查 Key / 安全码", 'error'); reject(e); });
+      });
+    }
+
+    // ----------- 语义到地图（可选后端） -----------
+    async function semanticToMap() {
+      const q = $("#query").value.trim();
+      if (!q) { msg("请输入自然语言需求，或使用下方手动方式", 'warn'); return; }
+      msg("调用后端进行语义解析中…");
+      try {
+        const resp = await fetch('/process_query', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `query=${encodeURIComponent(q)}` });
+        if (!resp.ok) throw new Error("后端未启动或返回错误");
+        const data = await resp.json();
+        // 期望 data.locations = ["昆明东陆校区", "翠湖公园", "讲武堂"]
+        clearMap();
+        const names = (data && data.locations) || [];
+        if (!names.length) { msg("后端未返回有效地点，尝试手动设置", 'warn'); return; }
+        // 逐个地理编码并做成路线
+        const coords = [];
+        for (let i = 0; i < names.length; i++) {
+          const name = names[i];
+          const lnglat = await locateByName(name);
+          if (lnglat) {
+            addMarker(lnglat, i === 0 ? 'start' : i === names.length - 1 ? 'end' : 'via', name);
+            coords.push(lnglat);
+          }
+        }
+        fitView();
+        if (coords.length >= 2) await plan(coords[0], coords.slice(1, -1), coords[coords.length - 1]);
+        msg("语义 -> 地图 完成");
+      } catch (err) { console.error(err); msg("语义解析失败：请确认已运行 web.py/app.py", 'error'); }
+    }
+
+    // ----------- 手动路径规划 -----------
+    async function planManual() {
+      const s = $("#start").value.trim();
+      const v = $("#via").value.trim();
+      const e = $("#end").value.trim();
+      if (!s || !e) { msg("起点与终点必填", 'warn'); return; }
+      clearMap();
+      const sLL = await locateByName(s);
+      const eLL = await locateByName(e);
+      const vias = v ? v.split(/[，,]/).map(x => x.trim()).filter(Boolean) : [];
+      const viaLL = [];
+      for (let i=0;i<vias.length;i++) { const ll = await locateByName(vias[i]); if (ll) viaLL.push(ll); }
+      if (sLL) addMarker(sLL, 'start', s);
+      viaLL.forEach((p,i)=> addMarker(p, 'via', vias[i]));
+      if (eLL) addMarker(eLL, 'end', e);
+      fitView();
+      await plan(sLL, viaLL, eLL);
+    }
+
+    async function plan(startLL, viaLL, endLL){
+      if (!startLL || !endLL) { msg("缺少起/终点坐标", 'error'); return; }
+      msg("正在规划路线…");
+      return new Promise((resolve,reject)=>{
+        driving.search({ origin: startLL, destination: endLL, waypoints: viaLL || [] }, (status, result) => {
+          if (status === 'complete' && result.routes && result.routes.length) {
+            const r = result.routes[0];
+            const km = (r.distance/1000).toFixed(1);
+            const min = Math.round(r.time/60);
+            $("#routePanel").innerHTML = `<div><strong>方案</strong>：约 ${km} km · ${min} 分钟</div>`;
+            msg("路线就绪");
+            resolve();
+          } else { msg("未找到合适路线", 'warn'); reject(); }
+        });
+      });
+    }
+
+    function fitView(){ map && map.setFitView(null, false, [60,60,60,420]); }
+
+    function locateByName(name){
+      return new Promise((resolve)=>{
+        geocoder.getLocation(name, (status, result)=>{
+          if (status === 'complete' && result.geocodes && result.geocodes.length) {
+            const { location } = result.geocodes[0];
+            resolve([location.lng, location.lat]);
+          } else { msg(`定位失败：${name}`, 'warn'); resolve(null); }
+        });
+      });
+    }
+
+    function toggleStyle(){
+      const styles = ["amap://styles/darkblue","amap://styles/whitesmoke","amap://styles/fresh","amap://styles/macaron"];
+      styleIdx = (styleIdx + 1) % styles.length;
+      map && map.setMapStyle(styles[styleIdx]);
+    }
+
+    function locateKunming(){ map && map.setZoomAndCenter(12, [102.707, 25.044]); }
+
+    // ----------- 事件绑定 -----------
+    async function boot(){
+      // 示例标签
+      const ex = $("#examples");
+      examples.forEach(t=>{ const span = document.createElement('button'); span.className='chip'; span.textContent=t; span.onclick=()=>($("#query").value=t); ex.appendChild(span); });
+      await loadAMap();
+      $("#btnPlan").onclick = planManual;
+      $("#btnFit").onclick = fitView;
+      $("#btnSemantic").onclick = semanticToMap;
+      $("#btnClear").onclick = ()=>{ clearMap(); msg("已清空"); };
+      $("#btnStyle").onclick = toggleStyle;
+      $("#btnLocate").onclick = locateKunming;
+    }
+    window.addEventListener('DOMContentLoaded', boot);
+    <script>
+      async function planWithMOA(startText, endText, weights){
+        // 1) 地理编码
+        const post = (url, body) => fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+        const s = await post('/api/geocode', { q: startText });
+        const e = await post('/api/geocode', { q: endText  });
+        if (!s.ok || !e.ok) { alert('地理编码失败'); return; }
+      
+        // 2) 调用多目标A*（示例：出片=咖啡馆，安静=公园）
+        const body = {
+          start: {lng:s.lnglat[0], lat:s.lnglat[1]},
+          end:   {lng:e.lnglat[0], lat:e.lnglat[1]},
+          scenic_kw: "咖啡馆",
+          quiet_kw:  "公园",
+          weights: weights || { w_dist: 0.7, w_scenic: 0.2, w_quiet: 0.1 },
+          grid_n: 26
+        };
+        const data = await post('/api/plan_moa', body);
+        if (!data.ok) { alert('MOA* 规划失败：'+(data.error||'')); return; }
+      
+        // 3) 将 polyline 画到 AMap (假设你已有 map 实例)
+        const path = data.polyline.map(p=> new AMap.LngLat(p[0], p[1]));
+        if (window._moaLine) { map.remove(window._moaLine); }
+        window._moaLine = new AMap.Polyline({ path, strokeWeight: 6, strokeOpacity: 0.9 });
+        map.add(window._moaLine);
+        map.setFitView([window._moaLine]);
+      }
+      </script>
+      
+  </script>
+</body>
+</html>
